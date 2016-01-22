@@ -200,9 +200,10 @@ local function peer_ok(ctx, is_backup, id, peer)
 end
 
 -- shortcut error function for check_peer()
-local function report_error(sock, ctx, is_backup, id, peer, ...)
-  if not peer.down then errlog(...) end
-  sock:close()
+local function report_error(ctx, is_backup, id, peer, ...)
+  if not peer.down then
+      errlog(...)
+  end
   peer_fail(ctx, is_backup, id, peer)
 end
 
@@ -227,21 +228,22 @@ local function check_peer(ctx, id, peer, is_backup)
         ok, err = sock:connect(name)
     end
     if not ok then
-        if not peer.down then 
-            errlog("failed to connect to ", name, ": ", err) 
-        end
-        return peer_fail(ctx, is_backup, id, peer)
+        return report_error(ctx, is_backup, id, peer,
+                            "failed to connect to ", name, ": ", err)
     end
 
     local bytes, err = sock:send(req)
     if not bytes then
-        return report_error(sock, ctx, is_backup, id, peer,
+        return report_error(ctx, is_backup, id, peer,
                             "failed to send request to ", name, ": ", err)
     end
 
     local status_line, err = sock:receive()
+
+    sock:close()    -- we only need the first line
+
     if not status_line then
-        return report_error(sock, ctx, is_backup, id, peer,
+        return report_error(ctx, is_backup, id, peer,
                             "failed to receive status line from ", name,
                             ": ", err)
     end
@@ -251,21 +253,20 @@ local function check_peer(ctx, id, peer, is_backup)
                                       [[^HTTP/\d+\.\d+\s+(\d+)]],
                                       "joi", nil, 1)
         if not from then
-            return report_error(sock, ctx, is_backup, id, peer,
+            return report_error(ctx, is_backup, id, peer,
                                 "bad status line from ", name, ": ",
                                 status_line)
         end
 
         local status = tonumber(sub(status_line, from, to))
         if not statuses[status] then
-            return report_error(sock, ctx, is_backup, id, peer,
+            return report_error(ctx, is_backup, id, peer,
                                 "bad status code from ",
                                 name, ": ", status)
         end
     end
 
     peer_ok(ctx, is_backup, id, peer)
-    sock:close()
 end
 
 local function check_peer_range(ctx, from, to, peers, is_backup)
